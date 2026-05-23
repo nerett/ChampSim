@@ -32,3 +32,8 @@ In this assignment, I implemented and compared three two-level adaptive branch p
 | 654.roms      |        1.3070 |         0.0215 |    1.3060 |     0.0245 |    1.3130 |     0.0229 |    1.3080 |     0.0248 |
 | 657.xz        |        1.4040 |        14.9500 |    1.2560 |    18.8700 |    1.4190 |    14.6900 |    1.4090 |    14.8600 |
 | GMEAN         |        0.9071 |         2.3219 |    0.9439 |     1.7865 |    0.9417 |     2.0428 |    0.9466 |     1.3405 |
+
+## 3. Analysis
+- **Bimodal vs. Global Predictors (GAg, GAp)**: The Bimodal predictor acts as a baseline with the highest overall MPKI (2.32) and lowest IPC (0.907). Interestingly, with a 32Kb budget, `GAg` noticeably outperforms Bimodal. The $2^{14}$-entry table is large enough to absorb a significant amount of destructive aliasing, allowing the benefit of global correlation to dominate.
+- **GAp vs. GAg**: `GAp` behaves similarly to `GAg` on average, but shifts the performance depending on the workload. By incorporating the PC into the index, it reduces aliasing but effectively fragments the history.
+- **PAp (The Winner)**: `PAp` is the best performing predictor, yielding the lowest GMEAN MPKI (1.34) and highest GMEAN IPC (0.946). By maintaining local history per branch, it completely isolates branch behaviors. This is remarkably visible in math/loop-heavy workloads like `603.bwaves`, where PAp drops the MPKI from 1.63 (Bimodal) down to a near-perfect 0.0028.

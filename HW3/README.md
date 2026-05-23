@@ -32,3 +32,12 @@ This assignment explores cache pollution mitigation in the L2 cache. I implement
 | 654.roms      |    1.3050 |    58.8105 |     1.3040 |     58.8144 |      1.4810 |      58.7890 |    1.4640 |    58.7972 |    1.4800 |    58.8011 |
 | 657.xz        |    1.8240 |    31.1939 |     1.8240 |     31.1939 |      1.8240 |      31.1939 |    1.8240 |    31.1939 |    1.8240 |    31.1939 |
 | GMEAN         |    0.9944 |    31.0764 |     0.9929 |     31.0832 |      0.9800 |      31.1182 |    0.9806 |    31.1162 |    0.9898 |    31.0891 |
+
+## 3. Analysis
+- **LRU vs. Pseudo-LRU (PLRU)**: As expected, PLRU metrics are nearly identical to LRU across all traces (GMEAN IPC 0.9944 vs 0.9929). This confirms that PLRU successfully approximates LRU while requiring significantly less hardware overhead.
+- **Workload Polarization (SRRIP & LIP)**: Advanced policies like `SRRIP` and `LIP` do not blindly win everywhere; they trade performance between different access patterns.
+  - On streaming workloads like `623.xalancbmk`, inserting lines with low priority prevents cache pollution, resulting in a massive IPC boost (LRU: 0.53 $\rightarrow$ SRRIP/LIP: ~0.94).
+  - However, on pointer-chasing/graph workloads like `605.mcf`, placing new blocks in the LRU position causes premature eviction of useful data, halving the IPC (LRU: 0.24 $\rightarrow$ SRRIP/LIP: ~0.12).
+- **LIP vs. BIP**: `BIP` successfully acts as a safety net for `LIP`. By occasionally inserting blocks into the MRU position (probabilistic sampling), `BIP` adapts better to working-set changes. For example, on `605.mcf`, `BIP` recovers some of the IPC lost by `LIP` (from 0.128 to 0.154), leading to a better overall GMEAN IPC than LIP and SRRIP.
+
+Altering insertion policies successfully mitigates cache pollution for scan-heavy traces, but strict thrashing-protection policies (like pure LIP) can hurt dynamic workloads. BIP provides a balanced middle-ground.
