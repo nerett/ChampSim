@@ -8,7 +8,9 @@ SIM_INST = 25_000_000
 
 BASE_DIR = Path(__file__).parents[2]
 TRACE_DIR = BASE_DIR.parent / "traces"
-RES_DIR = Path(__file__).parents[1] / "raw_output"
+
+HW_DIR = Path(__file__).parents[1]
+RES_DIR =  HW_DIR / "raw_output"
 
 BINARIES = [
     BASE_DIR / "bin" / "champsim_lru",
