@@ -1,31 +1,42 @@
 import re
 from pathlib import Path
 from statistics import geometric_mean
+
 import matplotlib.pyplot as plt
 import numpy as np
+import pandas as pd
 
-RES_DIR = Path(__file__).parents[1] / "raw_output"
-POLICIES: list[str] = ["lru", "plru", "srrip", "lip", "bip"]
+HW_DIR = Path(__file__).resolve().parents[1]
+RAW_OUTPUT_DIR = HW_DIR / "raw_output"
 
-TRACES: list[str] = [
-    "600.perlbench", "602.gcc", "603.bwaves", "605.mcf", "607.cactuBSSN", "619.lbm",
-    "620.omnetpp", "621.wrf", "623.xalancbmk", "625.x264", "627.cam4", "628.pop2",
-    "631.deepsjeng", "638.imagick", "641.leela", "644.nab", "648.exchange2",
-    "649.fotonik3d", "654.roms", "657.xz"
-]
+CSV_OUTPUT = HW_DIR / "metrics.csv"
+MD_OUTPUT = HW_DIR / "metrics.md"
+IPC_PLOT_OUTPUT = HW_DIR / "ipc_comparison.png"
+MISS_PLOT_OUTPUT = HW_DIR / "miss_rate_comparison.png"
+
+TARGETS = ["lru", "plru", "srrip", "lip", "bip"]
+
+def get_traces() -> list[str]:
+    traces = set()
+    for file in RAW_OUTPUT_DIR.glob("*.txt"):
+        name_parts = file.stem.split("_")
+        if len(name_parts) > 1 and name_parts[-1] in TARGETS:
+            trace_name = "_".join(name_parts[:-1])
+            traces.add(trace_name)
+
+    return sorted(list(traces))
 
 def parse_log(filepath: Path) -> tuple[float, float]:
     if not filepath.exists():
         return 0.0, 0.0
 
     text = filepath.read_text(encoding="utf-8")
-
     ipc_matches = re.findall(r"cumulative IPC:\s*([0-9.]+)", text)
-    ipc = float(ipc_matches[-1]) if ipc_matches else 0.0
-
     l2_matches = re.findall(r"cpu0_L2C\s+TOTAL\s+ACCESS:\s+(\d+)\s+HIT:\s+(\d+)\s+MISS:\s+(\d+)", text)
 
+    ipc = float(ipc_matches[-1]) if ipc_matches else 0.0
     miss_rate = 0.0
+
     if l2_matches:
         accesses = int(l2_matches[-1][0])
         misses = int(l2_matches[-1][2])
@@ -34,26 +45,21 @@ def parse_log(filepath: Path) -> tuple[float, float]:
 
     return ipc, miss_rate
 
-def plot_bar_chart(
-    data: dict[str, list[float]],
-    labels: list[str],
-    ylabel: str,
-    title: str,
-    filename: str
-) -> None:
-    x = np.arange(len(labels))
-    width = 0.15
+def generate_plot(df: pd.DataFrame, metric: str, ylabel: str, title: str, filename: Path) -> None:
+    x = np.arange(len(df.index))
+    width = 0.8 / len(TARGETS)
 
     fig, ax = plt.subplots(figsize=(18, 7))
 
-    for i, policy in enumerate(POLICIES):
-        offset = (i - len(POLICIES) / 2) * width + width / 2
-        ax.bar(x + offset, data[policy], width, label=policy.upper())
+    for i, target in enumerate(TARGETS):
+        offset = (i - len(TARGETS) / 2) * width + width / 2
+        col_name = f"{target.upper()}_{metric}"
+        ax.bar(x + offset, df[col_name], width, label=target.upper())
 
     ax.set_ylabel(ylabel)
     ax.set_title(title)
     ax.set_xticks(x)
-    ax.set_xticklabels(labels, rotation=45, ha="right")
+    ax.set_xticklabels(df.index, rotation=45, ha="right")
     ax.legend()
     ax.grid(axis="y", linestyle="--", alpha=0.7)
 
@@ -62,44 +68,34 @@ def plot_bar_chart(
     plt.close(fig)
 
 def main() -> None:
-    print(f"Starting with {RES_DIR=}")
-    ipc_data: dict[str, list[float]] = {p: [] for p in POLICIES}
-    miss_rate_data: dict[str, list[float]] = {p: [] for p in POLICIES}
+    traces = get_traces()
+    if not traces:
+        return
 
-    for trace in TRACES:
-        for policy in POLICIES:
-            log_path = RES_DIR / f"{trace}_{policy}.txt"
+    data: dict[str, list[float]] = {f"{t.upper()}_{m}": [] for t in TARGETS for m in ("IPC", "MISS")}
+
+    for trace in traces:
+        for target in TARGETS:
+            log_path = RAW_OUTPUT_DIR / f"{trace}_{target}.txt"
             ipc, miss_rate = parse_log(log_path)
-            ipc_data[policy].append(ipc)
-            miss_rate_data[policy].append(miss_rate)
 
-    for policy in POLICIES:
-        valid_ipc = [val for val in ipc_data[policy] if val > 0.0]
-        valid_mr = [val for val in miss_rate_data[policy] if val > 0.0]
+            data[f"{target.upper()}_IPC"].append(ipc)
+            data[f"{target.upper()}_MISS"].append(miss_rate)
 
-        gmean_ipc = geometric_mean(valid_ipc) if valid_ipc else 0.0
-        gmean_mr = geometric_mean(valid_mr) if valid_mr else 0.0
+    df = pd.DataFrame(data, index=traces)
 
-        ipc_data[policy].append(gmean_ipc)
-        miss_rate_data[policy].append(gmean_mr)
+    gmean_row = {}
+    for col in df.columns:
+        valid_data = [v for v in df[col] if v > 0.0]
+        gmean_row[col] = geometric_mean(valid_data) if valid_data else 0.0
 
-    plot_labels = TRACES + ["GMEAN"]
+    df.loc["GMEAN"] = gmean_row
 
-    plot_bar_chart(
-        data=ipc_data,
-        labels=plot_labels,
-        ylabel="IPC (Higher is Better)",
-        title="L2 Cache Replacement: IPC Comparison",
-        filename="hw3_ipc_comparison.png"
-    )
+    df.to_csv(CSV_OUTPUT)
+    MD_OUTPUT.write_text(df.to_markdown(floatfmt=".4f"), encoding="utf-8")
 
-    plot_bar_chart(
-        data=miss_rate_data,
-        labels=plot_labels,
-        ylabel="L2 Miss Rate % (Lower is Better)",
-        title="L2 Cache Replacement: Miss Rate Comparison",
-        filename="hw3_miss_rate_comparison.png"
-    )
+    generate_plot(df, "IPC", "IPC (Higher is Better)", "L2 Cache Replacement: IPC Comparison", IPC_PLOT_OUTPUT)
+    generate_plot(df, "MISS", "L2 Miss Rate % (Lower is Better)", "L2 Cache Replacement: Miss Rate Comparison", MISS_PLOT_OUTPUT)
 
 if __name__ == "__main__":
     main()
